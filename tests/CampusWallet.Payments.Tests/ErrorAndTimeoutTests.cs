@@ -65,4 +65,28 @@ public class ErrorAndTimeoutTests
         Assert.That(result.Status, Is.EqualTo(PaymentStatus.GatewayError));
         Assert.That(result.TransactionId, Is.Null);
     }
+
+    
+    [Test]
+    public async Task TopUp_WhenGatewayIsTooSlow_ReturnsTimeout()
+    {
+        // Arrange: gateway menjawab setelah 5 detik, padahal HttpClient.Timeout 1 detik
+        var gatewayDelay = TimeSpan.FromSeconds(5);
+
+        _server
+            .Given(Request.Create().WithPath("/payments").UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithBodyAsJson(new { transactionId = "TRX-SLOW", status = "SUCCESS" })
+                .WithDelay(gatewayDelay));
+
+        // Act
+        var stopwatch = Stopwatch.StartNew();
+        var result = await _client.TopUpAsync("ORDER-SLOW", 50_000m);
+        stopwatch.Stop();
+
+        // Assert: statusnya Timeout dan aplikasi berhenti menunggu sebelum gateway menjawab
+        Assert.That(result.Status, Is.EqualTo(PaymentStatus.Timeout));
+        Assert.That(stopwatch.Elapsed, Is.LessThan(gatewayDelay));
+    }
 }
