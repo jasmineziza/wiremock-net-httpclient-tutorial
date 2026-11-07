@@ -56,4 +56,26 @@ public class ErrorAndTimeoutTests
         Assert.That(result.Status, Is.EqualTo(PaymentStatus.Declined));
         Assert.That(result.TransactionId, Is.Null);
     }
+
+
+    [TestCase(500)]
+    [TestCase(502)]
+    [TestCase(503)]
+    public async Task TopUp_WhenGatewayReturns5xx_ReturnsGatewayError(int statusCode)
+    {
+        // Arrange: gateway pura-pura sedang bermasalah
+        _server
+            .Given(Request.Create()
+                .WithPath("/payments")
+                .UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(statusCode));
+
+        // Act
+        var result = await _client.TopUpAsync("ORDER-5XX", 50_000m);
+
+        // Assert
+        Assert.That(result.Status, Is.EqualTo(PaymentStatus.GatewayError));
+        Assert.That(result.TransactionId, Is.Null);
+    }
 }
