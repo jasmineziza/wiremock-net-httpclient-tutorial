@@ -41,13 +41,10 @@ public class VerificationTests
     [Test]
     public async Task TopUp_WhenAmountIsValid_SendsChargeExactlyOnce()
     {
-        // Arrange
         ArrangeSuccessStub();
 
-        // Act
         var result = await _client.TopUpAsync("ORDER-001", 50_000m);
 
-        // Assert: aplikasi menganggap sukses DAN gateway menerima tepat 1 request charge
         Assert.That(result.Status, Is.EqualTo(PaymentStatus.Success));
 
         var calls = _server.FindLogEntries(
@@ -59,13 +56,10 @@ public class VerificationTests
     [Test]
     public async Task TopUp_WhenAmountIsValid_SendsRequestWithCorrectContent()
     {
-        // Arrange
         ArrangeSuccessStub();
 
-        // Act
         await _client.TopUpAsync("ORDER-002", 75_000m);
 
-        // Assert: ambil request yang diterima gateway, lalu periksa isinya
         var calls = _server.FindLogEntries(
             Request.Create().WithPath("/payments").UsingPost()).ToList();
 
@@ -88,13 +82,10 @@ public class VerificationTests
     [TestCase(-5_000)]
     public async Task TopUp_WhenAmountIsInvalid_DoesNotSendAnyRequest(int invalidAmount)
     {
-        // Arrange: gateway siap menjawab, tapi harusnya ngga pernah dihubungi
         ArrangeSuccessStub();
 
-        // Act
         var result = await _client.TopUpAsync("ORDER-INVALID", invalidAmount);
 
-        // Assert: aplikasi menolak nominal, dan gateway menerima 0 request
         Assert.That(result.Status, Is.EqualTo(PaymentStatus.InvalidAmount));
         Assert.That(result.TransactionId, Is.Null);
 
@@ -104,13 +95,10 @@ public class VerificationTests
     [Test]
     public async Task TopUp_WhenAmountIsExactlyMinimum_SendsChargeExactlyOnce()
     {
-        // Arrange: nominal tepat di batas minimum masih dianggap valid
         ArrangeSuccessStub();
 
-        // Act
         var result = await _client.TopUpAsync("ORDER-MIN", PaymentClient.MinimumAmount);
 
-        // Assert
         Assert.That(result.Status, Is.EqualTo(PaymentStatus.Success));
         Assert.That(_server.LogEntries.Count(), Is.EqualTo(1));
     }

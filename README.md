@@ -350,11 +350,59 @@ request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey)
 
 ## Pengujian Request Verification
 
-<!-- TODO (Ledwino): isi bagian ini dengan format yang sama:
-     Tujuan, Skenario yang diuji, Langkah implementasi, Potongan kode kunci,
-     Cara menjalankan, Hasil yang diharapkan, Analisis kegagalan dan perbaikan -->
+### Tujuan
+Pada pengujian sebelumnya kita memeriksa **apa yang dijawab** gateway. Pada
+request verification, kita memeriksa **apa yang diterima** gateway. WireMock.Net
+mencatat setiap request yang masuk ke server palsu, sehingga kita bisa
+memastikan aplikasi mengirim request charge **tepat satu kali** dengan isi yang
+benar, dan **tidak mengirim apa pun** ke gateway ketika nominal top-up tidak
+valid. Hal kedua penting karena kalau validasi rusak, aplikasi bisa menagih
+nominal yang salah ke gateway sungguhan, dan itu tidak terlihat hanya dari
+hasil yang dikembalikan.
 
-*Bagian ini sedang disusun.*
+### Skenario yang diuji
+| Skenario | Aksi aplikasi | Yang diverifikasi di gateway palsu |
+|---|---|---|
+| Nominal valid (Rp50.000) | `TopUpAsync` dipanggil | Tepat 1 request `POST /payments` |
+| Isi request | `TopUpAsync` dipanggil | Body JSON berisi `orderId`, `amount`, `currency` yang benar |
+| Nominal tidak valid (9.999, 0, -5.000) | `TopUpAsync` dipanggil | 0 request diterima, hasil `PaymentStatus.InvalidAmount` |
+| Nominal tepat batas minimum (Rp10.000) | `TopUpAsync` dipanggil | Tepat 1 request diterima, hasil `PaymentStatus.Success` |
+
+### Langkah implementasi
+1. Buat file `tests/CampusWallet.Payments.Tests/VerificationTests.cs`.
+2. Pada `[SetUp]`, nyalakan `WireMockServer` dan buat `HttpClient` yang
+   mengarah ke `_server.Url`, sama seperti test sebelumnya.
+3. Pasang stub sukses untuk `POST /payments`. Stub ini membuat test gagal
+   dengan jelas kalau request yang tidak seharusnya dikirim ternyata terkirim.
+4. Panggil `TopUpAsync`, lalu baca catatan request dengan
+   `_server.FindLogEntries(...)` (untuk request tertentu) atau
+   `_server.LogEntries` (semua request).
+5. Periksa **jumlah** request dengan `Is.EqualTo(1)` atau `Is.EqualTo(0)`.
+6. Untuk memeriksa **isi** request, ambil `RequestMessage` dari catatan, lalu
+   baca body-nya sebagai JSON. Nama properti memakai camelCase karena
+   `JsonContent.Create` menulis JSON dengan format tersebut.
+
+Potongan kode kunci (request terkirim tepat satu kali):
+
+```csharp
+var result = await _client.TopUpAsync("ORDER-001", 50_000m);
+
+Assert.That(result.Status, Is.EqualTo(PaymentStatus.Success));
+
+var calls = _server.FindLogEntries(
+    Request.Create().WithPath("/payments").UsingPost());
+
+Assert.That(calls.Count(), Is.EqualTo(1));
+```
+
+Potongan kode kunci (nominal tidak valid tidak boleh sampai ke gateway):
+
+```csharp
+var result = await _client.TopUpAsync("ORDER-INVALID", 9_999);
+
+Assert.That(result.Status, Is.EqualTo(PaymentStatus.InvalidAmount));
+Assert.That(_server.LogEntries.Count(), Is.EqualTo(0));
+```
 
 ### Cara menjalankan
 ```bash
@@ -365,7 +413,19 @@ dotnet test --filter "FullyQualifiedName~VerificationTests"
 Seluruh test lulus (6 test case: 4 method, dengan satu method berjalan 3 kali
 untuk nominal tidak valid yang berbeda).
 
----
+### Analisis kegagalan dan perbaikan
+Coba comment-kan blok validasi `if (amount < MinimumAmount)` di
+`PaymentClient.cs`, lalu jalankan ulang test.
+
+- **Gejala:** tiga test nominal tidak valid gagal, dengan pesan kira-kira
+  `Expected: InvalidAmount But was: Success`. Test lainnya tetap lulus.
+- **Penyebab:** tanpa validasi, nominal yang tidak valid ikut dikirim ke
+  gateway. Gateway palsu membalas sukses, sehingga aplikasi menganggap top-up
+  berhasil dan gateway mencatat 1 request padahal seharusnya 0.
+- **Perbaikan:** kembalikan blok validasi agar nominal di bawah `MinimumAmount`
+  langsung ditolak dengan `PaymentStatus.InvalidAmount` sebelum request dikirim.
+
+  ---
 
 ## Pengujian Error & Timeout
 
